@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Grade Calculator</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 50px;
+        }
+        .container {
+            max-width: 500px;
+            margin: auto;
+        }
+        input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        button {
+            padding: 10px;
+            width: 100%;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>Grade Calculator</h2>
+    <label for="prelim">Enter Your Prelim Grade (0-100):</label>
+    <input type="number" id="prelim" name="prelim" min="0" max="100" step="0.01">
+    <button onclick="processGrade()">Submit</button>
+    <div id="output" class="result"></div>
+</div>
+
+<script type="text/javascript">
+    async function loadPyodideAndPackages() {
+        window.pyodide = await loadPyodide();
+    }
+    loadPyodideAndPackages();
+
+    async function processGrade() {
+        const prelimInput = document.getElementById('prelim').value;
+        const outputDiv = document.getElementById('output');
+
+        // Clear previous output
+        outputDiv.innerHTML = '';
+
+        // Define the Python code
+        const pythonCode = `
+output_lines = []
+
+def calculate_required_grades(prelim, prelim_weight, midterm_weight, final_weight):
+    passing_grade = 75
+
+    prelim_contribution = prelim_weight * prelim
+    remaining = passing_grade - prelim_contribution
+
+    if prelim <= 0:
+        output_lines.append('pass:False')
+        output_lines.append('message:Unfortunately, you cannot pass with a Prelim grade of 0.')
+        return
+
+    max_midterm = 100
+    max_final = 100
+
+    if remaining <= 0:
+        output_lines.append('pass:True')
+        output_lines.append('required_midterm:0')
+        output_lines.append('required_final:0')
+        return
+
+    max_possible_midterm = midterm_weight * max_midterm
+    max_possible_final = final_weight * max_final
+
+    if remaining > max_possible_midterm + max_possible_final:
+        output_lines.append('pass:False')
+        output_lines.append('message:Unfortunately, it is not possible to pass with the current Prelim grade.')
+        return
+
+    min_final = max(0, (remaining - max_possible_midterm) / final_weight)
+    min_midterm = max(0, (remaining - final_weight * max_final) / midterm_weight)
+
+    if min_final > max_final:
+        min_final = max_final
+    if min_midterm > max_midterm:
+        min_midterm = max_midterm
+    
+    output_lines.append('pass:True')
+    output_lines.append(f'required_midterm:{round(min_midterm, 2)}')
+    output_lines.append(f'required_final:{round(min_final, 2)}')
+
+def check_dean_lister(total_grade):
+    dean_lister_grade = 90
+    return total_grade > dean_lister_grade
+
+# Input validation
+prelim = float(prelim_input)
+if prelim < 0 or prelim > 100:
+    output_lines.append('pass:False')
+    output_lines.append('message:Prelim grade must be between 0 and 100.')
+else:
+    prelim_weight = 0.2
+    midterm_weight = 0.3
+    final_weight = 0.5
+
+    calculate_required_grades(prelim, prelim_weight, midterm_weight, final_weight)
+
+    if output_lines[0].startswith("pass:True"):
+        required_midterm = output_lines[1].split(":")[1]
+        required_final = output_lines[2].split(":")[1]
+        total_grade = prelim_weight * prelim + midterm_weight * float(required_midterm) + final_weight * float(required_final)
+        
+        is_dean = check_dean_lister(total_grade)
+        output_lines.append(f'dean_lister:{is_dean}')
+        output_lines.append(f'total_grade:{round(total_grade, 2)}')  # Add total grade for dean's lister check
+    else:
+        output_lines.append('dean_lister:False')
+`;
+
+        try {
+            // Pass the prelimInput into the Python code
+            window.pyodide.globals.set('prelim_input', prelimInput);
+            await window.pyodide.runPythonAsync(pythonCode);
+
+            // Capture the output from the output_lines list
+            const pyOutput = window.pyodide.globals.get('output_lines');
+
+            // Parse the output
+            let passStatus = false;
+            let message = "";
+            let required_midterm = "";
+            let required_final = "";
+            let dean_lister = false;
+            let total_grade = 0;
+
+            for (let line of pyOutput) {
+                if (line.startsWith("pass:")) {
+                    passStatus = line.split(":")[1] === "True";
+                }
+                if (line.startsWith("message:")) {
+                    message = line.split("message:")[1];
+                }
+                if (line.startsWith("required_midterm:")) {
+                    required_midterm = line.split("required_midterm:")[1];
+                }
+                if (line.startsWith("required_final:")) {
+                    required_final = line.split("required_final:")[1];
+                }
+                if (line.startsWith("dean_lister:")) {
+                    dean_lister = line.split("dean_lister:")[1] === "True";
+                }
+                if (line.startsWith("total_grade:")) {
+                    total_grade = line.split("total_grade:")[1];
+                }
+            }
+
+            // Display the results
+            let html = `<p><strong>Prelim Grade:</strong> ${prelimInput}</p>`;
+
+            if (passStatus) {
+                html += `<p><strong>Required Midterm Grade:</strong> ${required_midterm}</p>`;
+                html += `<p><strong>Required Final Grade:</strong> ${required_final}</p>`;
+                html += `<p class="success">You have a chance to pass.</p>`;
+                if (dean_lister) {
+                    html += `<p class="success">Congratulations! You qualify for Dean’s Lister.</p>`;
+                } else {
+                    html += `<p>To qualify for Dean’s Lister, aim for an overall grade above 90. Your current total grade is ${total_grade}.</p>`;
+                }
+            } else {
+                html += `<p class="error">${message}</p>`;
+            }
+
+            outputDiv.innerHTML = html;
+
+        } catch (err) {
+            // Handle errors (e.g., input validation)
+            outputDiv.innerHTML = `<p class="error">${err}</p>`;
+        }
+    }
+</script>
+</body>
+</html>
